@@ -1,0 +1,63 @@
+name: Auto Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{matrix.os}}
+    steps:
+    - uses: actions/checkout@master
+      with:
+        fetch-depth: 0
+    - name: Install
+      shell: bash
+      run: |
+        make
+        NELUA_GIT_HASH=$(git rev-parse HEAD^)
+        NELUA_GIT_DATE=$(git log -1 HEAD^ --format=%ci)
+        NELUA_GIT_BUILD=$(git rev-list HEAD^ --count)
+        sed -i.bak "s/NELUA_GIT_HASH = nil/NELUA_GIT_HASH = '$NELUA_GIT_HASH'/" lualib/nelua/version.lua
+        sed -i.bak "s/NELUA_GIT_DATE = nil/NELUA_GIT_DATE = '$NELUA_GIT_DATE'/" lualib/nelua/version.lua
+        sed -i.bak "s/NELUA_GIT_BUILD = nil/NELUA_GIT_BUILD = $NELUA_GIT_BUILD/" lualib/nelua/version.lua
+        rm -rf lualib/nelua/version.lua.bak
+    - name: Adjust variables
+      shell: bash
+      id: strip
+      run: |
+        case "${{matrix.os}}" in
+          windows-latest)
+            os=windows
+            script=nelua.bat
+            exe=nelua-lua.exe
+            ;;
+          macos-latest)
+            os=macos
+            script=nelua
+            exe=nelua-lua
+            ;;
+          ubuntu-latest)
+            os=linux
+            script=nelua
+            exe=nelua-lua
+            ;;
+          *)
+            echo not supported
+            exit 1
+            ;;
+        esac
+        echo "::set-output name=os::$os";
+        echo "::set-output name=script::$script";
+        echo "::set-output name=exe::$exe";
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ steps.strip.outputs.os }}
+        path: |
+          ${{ steps.strip.outputs.script }}
+          ${{ steps.strip.outputs.exe }}
+          lib
+          lualib

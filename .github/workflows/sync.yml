@@ -1,0 +1,40 @@
+name: Rebase Upstream
+on:
+  push:
+  schedule:
+  - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+      with:
+        fetch-depth: 10
+    - name: Login with pat
+      run: echo ${{ secrets.PERSONAL_ACCESS_TOKEN }} | gh auth login --with-token;
+    - name: Fetch upstream
+      id: fetch
+      run: |
+        UPSTREAM=$(gh api repos/:owner/:repo --jq .parent.full_name);
+        UPSTREAM_BRANCH=$(gh api repos/:owner/:repo --jq .parent.default_branch);
+        if [ -z $UPSTREAM ]; then echo "Can't find upstream" >&2 && exit 1; fi;
+        if [ ! $(echo $UPSTREAM | egrep '^(http|git@)') ]; then
+          UPSTREAM=https://github.com/$UPSTREAM.git
+        fi;
+        git remote add upstream $UPSTREAM;
+        git fetch upstream $UPSTREAM_BRANCH --depth=10;
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com";
+        git config --local user.name  "GitHub Actions";
+        git rebase upstream/$UPSTREAM_BRANCH;
+        if git push origin -n; then
+          echo "::set-output name=UPDATED::false";
+        else
+          git push origin --force-with-lease;
+          echo "::set-output name=UPDATED::true";
+        fi
+        git remote remove upstream
+    - name: Trigger build
+      if: steps.fetch.outputs.UPDATED == 'true' || github.event_name == 'push'
+      run: gh workflow run build.yml
